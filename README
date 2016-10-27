@@ -1,0 +1,42 @@
+                  Systems Programming Practicum Fall 2005-...
+      Streaming Media Environment Reference Implementation. Version 1.5
+      =================================================================
+
+
+Note:
+        * This library does NOT contain workable programs, but it
+          shows skeletons of client and server programs. Adapt them to
+          make your assignments.
+
+Environment:
+	* Linux Open Sound System via PulseAudio emulation. I.e. OSS is
+	no longer part of standard Linux distributions, but it can be used
+	via an emulation wrapper. See below.
+	
+Dependencies:
+	* None
+
+Files:
+	* audio.h	: Wave header definition etc.
+	* audio.c	: functions to abstract wave file format 
+                          access & audio device manipulation
+
+        The following files must only be taken as EXAMPLES of program
+        skeletons. Feel free to change them as you like.
+
+	* server.c	: sample streaming server 
+	* client.c	: sample streaming client
+        * library.h     : header for library.c
+        * library.c     : sample filter libary 
+
+Usage:
+        Compile and link your program with audio.c
+        Then run the program using the PulseAudio OSS Wrapper:
+        
+        padsp ./program
+        
+        This will ensure the aud_writeinit() function can find a /dev/dsp device 
+        to which it can write your samples, thereby playing them.
+        
+Contact: Arno Bakker
+arno@cs.vu.nl

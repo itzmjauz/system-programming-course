@@ -1,0 +1,12 @@
+PROTOCOL FOR AUDIOCLIENT AND SERVERCLIENT FOR ASSIGNMENT 4
+
+1. Initial connection
+The initial connection consists of the first message from the client to server, containing only a filename.
+The server respons with the same packet the client sent.
+The client compares buffers and if correct listens for a next packet
+The server's next packet consists of details of the audiofile. such as sample rate sample size and channels
+The client sets up the audio output and listens for packets to stream. 
+Server sends client audiobuffers with intervals equals to the buffersize divided by bitrate. (to ensure no flooding of audio buffers)
+
+
+
