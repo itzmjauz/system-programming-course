@@ -11,7 +11,7 @@
 #include "audio.h"
 
 #define BUFSIZE 1024
-#define PORT 1634
+#define PORT 32581
 
 static int breakloop = 0;
 
@@ -84,7 +84,7 @@ int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
 }
 
 int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in addr) {
-  int data_fd, channels, sample_size, sample_rate, bitrate, err = 0;
+  int data_fd, channels, sample_size, sample_rate, bitrate, err;
   float sleeptime;
   char buf[BUFSIZE];
 
@@ -98,11 +98,16 @@ int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in add
   sprintf(buf, "%d|%d|%d|", sample_size, sample_rate, channels);
 
   err = sendto(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, flen);
-  
+  if (err < 0) {
+    printf("Could not send packet...Skipping request\n");
+    return -1;
+  }
+   
   bitrate = sample_size * sample_rate * channels;
   sleeptime = (1000000 * (float) (BUFSIZE * 8)) / (float) bitrate; //time per packet in microseconds
 
   streamfile(fd, data_fd, addr, sleeptime);
+  return 1;
 }
 
 void connect_client(int fd, socklen_t flen) {

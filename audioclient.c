@@ -11,7 +11,7 @@
 #include "audio.h"
 
 #define BUFSIZE 1024
-#define PORT 1634
+#define PORT 32581
 #define DONESIZE 4
 
 static int breakloop = 0; 
@@ -112,7 +112,7 @@ int initconnection(int server_fd, char * hostname, char * filename) {
 }
 
 int main(int argc, char ** argv) {
-  int server_fd, audio_fd, err;
+  int server_fd;
 
   printf("Audio client, by Antoni stevenet @ 2016\n"); //logging so that user knows stuff is happening
 
