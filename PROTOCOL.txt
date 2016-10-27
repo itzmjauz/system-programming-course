@@ -1,6 +1,7 @@
 PROTOCOL FOR AUDIOCLIENT AND SERVERCLIENT FOR ASSIGNMENT 4
 
 1. Initial connection
+
 The initial connection consists of the first message from the client to server, containing only a filename.
 The server respons with the same packet the client sent.
 The client compares buffers and if correct listens for a next packet

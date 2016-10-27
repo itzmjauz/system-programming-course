@@ -2,9 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <dlfcn.h>
 #include <signal.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <sys/select.h>
@@ -111,9 +109,8 @@ void connect_client(int fd, socklen_t flen) {
   int err = 0;
   char buf[BUFSIZE];
   struct sockaddr_in addr;
-
+  
   err = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
-
   if (err < 0) {
     printf("ERROR : %d, when attempting initial connection\n", err);
     connect_client(fd, flen);
@@ -161,6 +158,7 @@ int main(int argc, char ** argv) {
   addr.sin_port           = htons(PORT);
   addr.sin_addr.s_addr    = htonl(INADDR_ANY);
 
+  printf("Binding socket..\n");
   flen = sizeof(struct sockaddr_in);
   err = bind(fd, (struct sockaddr *) &addr, flen);
   if (err < 0) {
@@ -169,7 +167,7 @@ int main(int argc, char ** argv) {
     return -1;
   }
 
-
+  printf("Starting communication loop\n");
   while (!breakloop) {
     //wait for connection
     //after connection stream 

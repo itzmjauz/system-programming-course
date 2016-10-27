@@ -74,7 +74,11 @@ int initconnection(int server_fd, char * hostname, char * filename) {
   sock.sin_addr           = addr;
 
   err = sendto(server_fd, filename, BUFSIZE, 0, (struct sockaddr *) &sock, flen);
-  if (err < 0) return -1;
+  if (err < 0) {
+    printf("Cannot send packets to server!, quitting\n");
+    return -1;
+  }
+
 
   printf("Waiting for answer from server...\n");
   err = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, &flen);
@@ -117,6 +121,7 @@ int main(int argc, char ** argv) {
   if (argc < 3) { //check parameters
     printf("ERROR : Incorrect amount of parameters passed\n"); 
     printf("Usage : %s <hostname/IP> <filename>\n", argv[0]);
+    return -1;
   }
 
   server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); //server connection
@@ -125,7 +130,6 @@ int main(int argc, char ** argv) {
     return -1;
   }
  
-
   initconnection(server_fd, argv[1], argv[2]);
   //TODO LATER , library stuff
 
