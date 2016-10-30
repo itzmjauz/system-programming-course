@@ -1,133 +1,236 @@
-/* server.c
- *
- * part of the Systems Programming assignment
- * (c) Vrije Universiteit Amsterdam, 2005-2015. BSD License applies
- * author  : wdb -_at-_ few.vu.nl
- * contact : arno@cs.vu.nl
- * */
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <dlfcn.h>
 #include <signal.h>
-#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+#include <sys/select.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-#include "library.h"
 #include "audio.h"
 
-/// a define used for the copy buffer in stream_data(...)
 #define BUFSIZE 1024
+#define PORT 32581
 
-static int breakloop = 0;	///< use this variable to stop your wait-loop. Occasionally check its value, !1 signals that the program should close
+static int breakloop = 0;
+static int filter = 0;
+static int filterarg = 0;
+static int sample_size = 0;
+char * DONE = "DONE";
+char * CONNECT = "CONNECT";
+char * FERROR = "FERROR";
+char * DENY = "DENY";
+char * OK = "OK";
 
-/// stream data to a client. 
-///
-/// This is an example function; you do *not* have to use this and can choose a different flow of control
-///
-/// @param fd an opened file descriptor for reading and writing
-/// @return returns 0 on success or a negative errorcode on failure
-int stream_data(int client_fd)
-{
-	int data_fd;
-	int channels, sample_size, sample_rate;
-	server_filterfunc pfunc;
-	char *datafile, *libfile;
-	char buffer[BUFSIZE];
-	
-	// TO IMPLEMENT
-	// receive a control packet from the client 
-	// containing at the least the name of the file to stream and the library to use
-	{
-		datafile = strdup("1.wav");
-		libfile = NULL;
-	}
-	
-	// open input
-	data_fd = aud_readinit(datafile, &sample_rate, &sample_size, &channels);
-	if (data_fd < 0){
-		printf("failed to open datafile %s, skipping request\n",datafile);
-		return -1;
-	}
-	printf("opened datafile %s\n",datafile);
+int recvtimeout(int fd) {
+  struct timeval timeout;
+  fd_set read_set;
+  int nb;
 
-	// optionally open a library
-	if (libfile){
-		// try to open the library, if one is requested
-		pfunc = NULL;
-		if (!pfunc){
-			printf("failed to open the requested library. breaking hard\n");
-			return -1;
-		}
-		printf("opened libraryfile %s\n",libfile);
-	}
-	else{
-		pfunc = NULL;
-		printf("not using a filter\n");
-	}
-	
-	// TO IMPLEMENT : optionally return an error code to the client if initialization went wrong
-	
-	// start streaming
-	{
-		int bytesread, bytesmod;
-		
-		bytesread = read(data_fd, buffer, BUFSIZE);
-		while (bytesread > 0){
-			// you might also want to check that the client is still active, whether it wants resends, etc..
-			
-			// edit data in-place. Not necessarily the best option
-			if (pfunc)
-				bytesmod = pfunc(buffer,bytesread); 
-			write(client_fd, buffer, bytesmod);
-			bytesread = read(data_fd, buffer, BUFSIZE);
-		}
-	}
+  FD_ZERO(&read_set);
+  FD_SET(fd, &read_set);
+  timeout.tv_sec = 1;
+  timeout.tv_usec = 0;
 
-	// TO IMPLEMENT : optionally close the connection gracefully 	
-	
-	if (client_fd >= 0)
-		close(client_fd);
-	if (data_fd >= 0)
-		close(data_fd);
-	if (datafile)
-		free(datafile);
-	if (libfile)
-		free(libfile);
-	
-	return 0;
+  nb = select(fd + 1, &read_set, NULL, NULL, &timeout);
+  if (FD_ISSET(fd, &read_set)) {
+    return 1;
+  }
+  else {
+    return nb;
+  }
+}
+float getPercent(int source) {
+  float percentage;
+  percentage = (float) source / 100; 
+
+  return percentage; 
 }
 
-/// unimportant: the signal handler. This function gets called when Ctrl^C is pressed
-void sigint_handler(int sigint)
-{
-	if (!breakloop){
-		breakloop=1;
-		printf("SIGINT caught. Please wait to let the server close gracefully.\nTo close hard press Ctrl^C again.\n");
-	}
-	else{
-       		printf ("SIGINT occurred, exiting hard... please wait\n");
-		exit(-1);
-	}
+char * lowvol(char * buffer) {
+  int sampleCount = (BUFSIZE / sizeof(int16_t));
+  int16_t * samp = (int16_t *) &buffer[0];
+  float percent = getPercent(filterarg);
+  for (int i = 0; i < sampleCount; i++) {
+    samp[i] -= (int16_t) (samp[i] * percent);
+  }
+  return buffer;
 }
 
-/// the main loop, continuously waiting for clients
-int main (int argc, char **argv)
-{
-	printf ("SysProg network server\n");
-	printf ("handed in by Antoni stevenet\n");
-	
-	signal(SIGINT, sigint_handler );	// trap Ctrl^C signals
-	
-	while (!breakloop){
-		// TO IMPLEMENT: 
-		// 	wait for connections
-		// 	when a client connects, start streaming data (see the stream_data(...) prototype above)
-		sleep(1);
-		
-	}
+char * filterfunc(char * buffer) {
+  if(filter == 1) return lowvol(buffer);
+  else return buffer;
+}
 
-	return 0;
+int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
+  int bytesread, err = 0, count = 0;
+  socklen_t flen = sizeof(struct sockaddr_in);
+  char buf[BUFSIZE], * filtered;
+  
+  bytesread = read(data_fd, buf, BUFSIZE);
+  while (bytesread > 0) {
+    filtered = filterfunc(buf);
+    usleep(sleeptime);
+    err = sendto(fd, filtered, BUFSIZE, 0, (struct sockaddr *) &addr, flen);
+    if (err < 0) {
+      printf("ERROR : cannot send audio packet, skipping request\n");
+      return -1;
+    }
+    printf("Sending packet ...");   // not doing this to remove delay in audioplay
+    err = recvtimeout(fd);
+    if (err < 0) {
+      printf("ERROR : Connection error\n");
+      return -1;
+    } else if (err == 0) {
+      printf("Packet : lost\n");
+    } else {
+      err = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
+      if (err < 0) {
+        printf("ERROR : Connection error\n");
+      }
+      printf(" packet %d correctly received!\n", count);
+    }
+    if(strncmp(buf, OK, strlen(OK)) != 0) {
+      if(strncmp(buf, CONNECT, strlen(CONNECT)) == 0) {
+        err = sendto(fd, DENY, strlen(DENY), 0, (struct sockaddr *) &addr, flen);
+        if(err < 0) {
+          printf("ERROR, Connection error\n");
+        }
+      } else {
+        printf("\nNo OK received, skipping request\n");
+        return -1;
+      }
+    }
+    count++;
+
+    bytesread = read(data_fd, buf, BUFSIZE);
+  }
+
+  printf("Sending DONE packet to client...\n");
+  err = sendto(fd, DONE, strlen(DONE), 0, (struct sockaddr *) &addr, flen); 
+  
+  if (err < 0) {
+    printf("ERROR : failed sending DONE packet, continue anyway..\n");
+    return -1;
+  } else {
+    printf("Succcesfuly streamed audiofile, waiting for new connections..\n");
+    return -1;
+  }
+}
+
+int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in addr) {
+  int data_fd, channels, sample_rate, bitrate, err;
+  float sleeptime;
+  char buf[BUFSIZE];
+
+  data_fd = aud_readinit(filename + strlen(CONNECT), &sample_rate, &sample_size, &channels);
+  if (data_fd < 0) {
+    printf("ERROR : failed to open audio file : %s\n, Skipping request\n", filename + strlen(CONNECT));
+    err = sendto(fd, FERROR, strlen(FERROR), 0, (struct sockaddr *) &addr, flen);
+    if (err < 0) {
+      printf("ERROR : Couldn't send File error message\n");
+      return -1;
+    }
+    return -1;
+  }
+
+  printf("Audiofile found! sending details...\n");
+  sprintf(buf, "%d|%d|%d|", sample_size, sample_rate, channels);
+
+  err = sendto(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, flen);
+  if (err < 0) {
+    printf("Could not send packet...Skipping request\n");
+    return -1;
+  }
+  //read filter stuff
+  memset(buf, 0, BUFSIZE);
+  err = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
+  filter = buf[0] - '0';
+  filterarg = strtol(buf + 1, NULL, 10);
+   
+  bitrate = sample_size * sample_rate * channels;
+  sleeptime = (1000000 * (float) (BUFSIZE * 8)) / (float) bitrate; //time per packet in microseconds
+
+  streamfile(fd, data_fd, addr, sleeptime);
+  return 1;
+}
+
+void connect_client(int fd, socklen_t flen) {
+  int err = 0;
+  char buf[BUFSIZE];
+  struct sockaddr_in addr;
+  
+  err = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
+  if (err < 0) {
+    printf("ERROR : %d, when attempting initial connection\n", err);
+    connect_client(fd, flen);
+  } else if (strncmp(buf, CONNECT, strlen(CONNECT)) != 0) {
+    printf("Not a connect message!, skipping!\n");
+    connect_client(fd, flen);
+    return;
+  } else {
+    printf("Connected to host : %s, port : %d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+    err = sendto(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, flen);
+    
+    if (err < 0) {
+      printf("Cannot send messages to host, skipping client\n");
+      connect_client(fd, flen);
+      return;
+    }
+
+    stream_audio(fd, flen, buf, addr);
+    connect_client(fd, flen);
+    return;
+  }
+}
+
+void sigint_handler(int sigint) {
+  if (breakloop) {
+    printf("SIGINT occurred, shutting down...\n");
+    exit(-1);
+  }
+  breakloop = 1;
+  printf("SIGINT caught, closing client.., force quit with ctrl-c\n");
+}
+
+int main(int argc, char ** argv) {
+  struct sockaddr_in addr;
+  int fd, err = 0;
+  socklen_t flen;
+
+  printf("Audio server, by Antoni Stevenet @ 2016\n");
+
+  signal(SIGINT, sigint_handler); //catch ctrl-c
+
+  fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); //server connection
+  if (fd < 0) {
+    printf("ERROR : cannot open input connection\n");
+    return -1;
+  }
+
+  addr.sin_family         = AF_INET;
+  addr.sin_port           = htons(PORT);
+  addr.sin_addr.s_addr    = htonl(INADDR_ANY);
+
+  printf("Binding socket..\n");
+  flen = sizeof(struct sockaddr_in);
+  err = bind(fd, (struct sockaddr *) &addr, flen);
+  if (err < 0) {
+    printf("ERROR : cannot bind socket\n");
+    close(fd);
+    return -1;
+  }
+
+  printf("Starting communication loop\n");
+  while (!breakloop) {
+    //wait for connection
+    //after connection stream 
+    connect_client(fd, flen);
+    sleep(1);
+  }
+
+  return 0;
 }
 

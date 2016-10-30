@@ -1,13 +1,65 @@
-PROTOCOL FOR AUDIOCLIENT AND SERVERCLIENT FOR ASSIGNMENT 4
+POTOCOL FOR AUDIOCLIENT AND SERVERCLIENT FOR ASSIGNMENT 4
 
-1. Initial connection
+1.1 Initial connection
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 1 0 0 0 0 1 1 0 1 0 0 1 1 1 1 0 1 0 0 1 1 1 0 0 1 0 0 1 1 1 0|                                                              
+~0 1 0 0 0 1 0 1 0 1 0 0 0 0 1 1 0 1 0 1 0 1 0 0|               ~     
+~                      FILENAME(0 ~ 1017)                       ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+The initial connection consists of the first message from the client to server, containing "CONNECT" as initial 7 bytes,
+and the rest of the message containing a filename.
+which can take up to the rest of BUFSIZE which is 1017 bytes.
+The server responds with the same packet the client sent. unless there is an error. such as the deny message:
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 1 0 1 0 0 1 1 1 0 0 1 0 1 1 0 0 1|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-The initial connection consists of the first message from the client to server, containing only a filename.
-The server respons with the same packet the client sent.
+1.1 File data
 The client compares buffers and if correct listens for a next packet
-The server's next packet consists of details of the audiofile. such as sample rate sample size and channels
+The server's next packet consists of details of the audiofile. such as sample rate sample size and channels:
+This data is put into a string with each value separated by | characters.
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+~                    audiodata(0 ~ 1024)                        ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Here again, the string can be up to 1024 in size, but this is highly inprobable (if it happens you are doing something wrong).
+
+2. Streaming
 The client sets up the audio output and listens for packets to stream. 
 Server sends client audiobuffers with intervals equals to the buffersize divided by bitrate. (to ensure no flooding of audio buffers)
 
+This is raw audiodata which can directly be passed to the audio system
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+~                    AUDIOBUFFER(0 ~ 1024)                      ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+The client send back an OK package after every received audiobuffer :
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 1 0 0 1 1 1 1 0 1 0 0 1 0 1 1 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+3. Ending streaming
+When the audio file is done streaming we are sending a special 'DONE' packet
+The DONE message looks like this:
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 1 0 0 0 1 0 0 0 1 0 0 1 1 1 1 0 1 0 0 1 1 1 0 0 1 1 0 0 1 0 1|                                                         
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 

@@ -1,115 +1,217 @@
-/* client.c
- *
- * part of the Systems Programming assignment
- * (c) Vrije Universiteit Amsterdam, 2005-2016. BSD License applies6
- * author  : wdb -_at-_ few.vu.nl
- * contact : arno@cs.vu.nl
- * */
-
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
-#include <dlfcn.h>
-#include <netinet/in.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
 
 #include "library.h"
 #include "audio.h"
 
 #define BUFSIZE 1024
+#define PORT 32581
+#define DONESIZE 4
 
-static int breakloop = 0;	///< use this variable to stop your wait-loop. Occasionally check its value, !1 signals that the program should close
+static int breakloop = 0; 
+const char * DENY = "DENY";
+const char * CONNECT = "CONNECT";
+const char * FERROR = "FERROR";
+const char * LOWVOL = "LOWVOL";
 
-/// unimportant: the signal handler. This function gets called when Ctrl^C is pressed
-void sigint_handler(int sigint)
-{
-	if (!breakloop){
-		breakloop=1;
-		printf("SIGINT catched. Please wait to let the client close gracefully.\nTo close hard press Ctrl^C again.\n");
-	}
-	else{
-       		printf ("SIGINT occurred, exiting hard... please wait\n");
-		exit(-1);
-	}
+int recvtimeout(int fd) {
+  struct timeval timeout;
+  fd_set read_set;
+  int nb;
+
+  FD_ZERO(&read_set);
+  FD_SET(fd, &read_set);
+  timeout.tv_sec = 1;
+  timeout.tv_usec = 0;
+
+  nb = select(fd + 1, &read_set, NULL, NULL, &timeout);
+  if (FD_ISSET(fd, &read_set)) {
+    return 1;
+  }
+  else {
+    return nb;
+  }
 }
 
-int main (int argc, char *argv [])
-{
-	int server_fd, audio_fd;
-	int sample_size, sample_rate, channels;
-	client_filterfunc pfunc;
-	char buffer[BUFSIZE];
-
-	printf ("SysProg2016 network client\n");
-	printf ("Handed in by Antoni Stevenet\n");
-	
-	signal( SIGINT, sigint_handler );	// trap Ctrl^C signals
-	
-	// parse arguments
-	if (argc < 3){
-		printf ("error : called with incorrect number of parameters\nusage : %s <server_name/IP> <filename> [<filter> [filter_options]]]\n", argv[0]) ;
-		return -1;
-	}
-	
-	// TO IMPLEMENT : open input
-	server_fd = -1;
-	if (server_fd < 0){
-		printf("error: unable to connect to server.\n");
-		return -1;
-	}
-
-	// TO IMPLEMENT
-	// send the requested filename and library information to the server
-	// and wait for an acknowledgement. Or fail if the server returns an errorcode	
-	{
-		sample_size = 4;
-		sample_rate = 44100;
-		channels = 2;
-	}
-	
-	// open output
-	audio_fd = aud_writeinit(sample_rate, sample_size, channels);
-	if (audio_fd < 0){
-		printf("error: unable to open audio output.\n");
-		return -1;
-	}
-	
-	// open the library on the clientside if one is requested
-	if (argv[3] && strcmp(argv[3],"")){
-		// try to open the library, if one is requested
-		pfunc = NULL;
-		if (!pfunc){
-			printf("failed to open the requested library. breaking hard\n");
-			return -1;
-		}
-		printf("opened libraryfile %s\n",argv[3]);
-	}
-	else{
-		pfunc = NULL;
-		printf("not using a filter\n");
-	}
-	
-	// start receiving data
-	{
-		int bytesread, bytesmod;
-		char *modbuffer;
-		
-		bytesread = read(server_fd, buffer, BUFSIZE);
-		while (bytesread > 0){
-			// edit data in-place. Not necessarily the best option
-			if (pfunc)
-				modbuffer = pfunc(buffer,bytesread,&bytesmod); 
-			write(audio_fd, modbuffer, bytesmod);
-			bytesread = read(server_fd, buffer, BUFSIZE);
-		}
-	}
-
-	if (audio_fd >= 0)	
-		close(audio_fd);
-	if (server_fd >= 0)
-		close(server_fd);
-	
-	return 0 ;
+void sigint_handler(int sigint) {
+  if (breakloop) {  
+    printf("SIGINT occurred, shutting down...\n");
+    exit(-1);
+  }
+  breakloop = 1;
+  printf("SIGINT caught, closing client.., force quit with ctrl-c\n");
 }
 
+struct in_addr resolvehost(char * hostname) {
+  struct hostent *resolv;
+  struct in_addr *addr;
+
+  resolv = gethostbyname(hostname);
+  if (resolv == NULL) {
+    //adress not found
+    exit(1);
+  }
+  addr = (struct in_addr*) resolv->h_addr_list[0];
+  
+  return *addr;
+}
+   
+int comms(int server_fd, int audio_fd, struct sockaddr_in addr) { //COMMUNICATIONS
+  int bytesread, count = 0, err;
+  char buf[BUFSIZE], okmssg[] = "OK";
+  socklen_t flen = sizeof(struct sockaddr_in);
+
+  bytesread = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
+  while (bytesread > 0) {
+    write(audio_fd, buf, bytesread);
+    err = sendto(server_fd, okmssg, strlen(okmssg), 0, (struct sockaddr *) &addr, flen);
+    if (err < 0) {
+      printf("Cannot send OK to server\n");
+      return -1;
+    }
+    count++;
+    printf("Got packet: %d\n", count);
+    err = recvtimeout(server_fd);
+    if (err < 0) {
+      printf("ERROR : Connection error\n");
+      return -1;
+    } else if (err == 0) {
+      printf("ERROR : Connection lost\n");
+      return -1;
+    } 
+    bytesread = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
+    
+    if(strncmp(buf, "DONE", DONESIZE) == 0) {
+      bytesread = -1;
+    }
+  }
+  printf("Got final packet!\n");
+
+  return 1;
+}
+
+int initconnection(int server_fd, char * hostname, char * filename, int filter, char * filterarg) {
+  struct sockaddr_in sock;
+  int err = 0, audio_fd, sample_rate, sample_size, channels;
+  struct in_addr addr;
+  char buf[BUFSIZE] = "";
+  socklen_t flen = sizeof(struct sockaddr_in);
+  addr = resolvehost(hostname);
+
+  sock.sin_family         = AF_INET;
+  sock.sin_port           = htons(PORT);
+  sock.sin_addr           = addr;
+
+  if((sizeof(filename) + strlen(CONNECT)) < BUFSIZE) {
+    strncat(buf, CONNECT, strlen(CONNECT)); //connect message
+    strncat(buf, filename, strlen(filename));
+  } else {
+    printf("Entered filename too long! enter something smaller than %d\n", BUFSIZE);
+    return -1;
+  }
+
+  err = sendto(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, flen);
+  if (err < 0) {
+    printf("Cannot send packets to server!, quitting\n");
+    perror("sendto");
+    return -1;
+  }
+
+  printf("Waiting for answer from server...\n");
+  err = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, &flen);
+  if (err < 0) return -1;
+  if (strncmp(buf, DENY, strlen(DENY)) == 0) printf("ERROR, Server denied connection, probably busy\n");
+  if (strncmp(buf + strlen(CONNECT), filename, strlen(filename)) == 0) {
+    printf("Connection OK!\n");
+    err = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, &flen);
+    if (err < 0) {
+      printf("ERROR : cannot receive audio info from server, exiting..\n");
+      return -1;
+    }
+    if (strncmp(buf, FERROR, strlen(FERROR)) == 0) {
+      printf("ERROR : Audiofile not found! Terminating!\n");
+      return -1;
+    }
+
+    sample_size = strtol(strtok(buf, "|"), NULL, 10);
+    sample_rate = strtol(strtok(NULL, "|"), NULL, 10);
+    channels = strtol(strtok(NULL, "|"), NULL, 10);
+
+   audio_fd = aud_writeinit(sample_rate, sample_size, channels);//open audio output
+    if (audio_fd < 0) {
+      printf("ERROR : Cannot open audio output\n");
+      return -1;
+    }
+    
+    
+    memset(buf, 0, BUFSIZE);    
+    if(filter != 0 && (strlen(filterarg) + 1) < BUFSIZE) {
+      buf[0] = (char) filter + '0';
+      strncat(buf, filterarg, strlen(filterarg));
+      strcat(buf, "\0");
+    } else {
+      buf[0] = '0';
+    }
+
+    err = sendto(server_fd, buf, strlen(buf), 0, (struct sockaddr *) &sock, flen);
+    if (err < 0) {
+      printf("ERROR : Could not send filter data, terminating\n");
+      return -1;
+    }
+    
+    comms(server_fd, audio_fd, sock);
+
+  } else {
+    printf("Got wrong server response, quitting..\n");
+    return -1;
+  }
+
+  return -1;
+}
+
+int main(int argc, char ** argv) {
+  int server_fd, filter = 0;
+
+  printf("Audio client, by Antoni stevenet @ 2016\n"); //logging so that user knows stuff is happening
+
+  signal(SIGINT, sigint_handler);  //catch ctrl-c
+
+  if (argc < 3) { //check parameters
+    printf("ERROR : Incorrect amount of parameters passed\n"); 
+    printf("Usage : %s <hostname/IP> <filename> [<filter> [filter options]]\n", argv[0]);
+    return -1;
+  }
+
+  server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); //server connection
+  if (server_fd < 0) {
+    printf("ERROR : cannot open input connection");
+    return -1;
+  }
+
+  if(argv[3]) {
+    if(strncmp(argv[3], LOWVOL, strlen(LOWVOL)) == 0) { 
+      filter = 1;
+      if(!argv[4]) {
+        printf("ERROR : Not enough arguments for SLOWMO filter, add percentage of speed to play as argument\n");
+        return -1;
+      }
+      if(strlen(argv[4]) > 2) {
+      printf("ERROR filter argument too big! should be smaller than 100 (two digits max)\n");
+      return -1;
+    }
+    }
+  }
+
+  initconnection(server_fd, argv[1], argv[2], filter, argv[4]);
+
+  return 0;
+}
