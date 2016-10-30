@@ -192,7 +192,7 @@ int main(int argc, char ** argv) {
 
   signal(SIGINT, sigint_handler);  //catch ctrl-c
 
-  if (argc < 3) { //check parameters
+  if (argc < 3 || argc > 5) { //check parameters
     printf("ERROR : Incorrect amount of parameters passed\n"); 
     printf("Usage : %s <hostname/IP> <filename> [<filter> [filter options]]\n", argv[0]);
     return -1;
@@ -205,7 +205,7 @@ int main(int argc, char ** argv) {
   }
 
   if(argv[3]) {
-    if(strncmp(argv[3], VOL, strlen(VOL)) == 0) { 
+    if(strncmp(argv[3], VOL, strlen(VOL) + 1) == 0) { 
       filter = 1;
       if(!argv[4]) {
         printf("ERROR : Not enough arguments for VOL filter, add percentage of volume to play as argument\n");
@@ -215,17 +215,17 @@ int main(int argc, char ** argv) {
         printf("ERROR : filter argument too big! should be smaller than 1000\n");
         return -1;
       }
-    } else if(strncmp(argv[3], NOISE, strlen(NOISE)) == 0) { 
+    } else if(strncmp(argv[3], NOISE, strlen(NOISE) + 1) == 0) { 
       filter = 2;
       if(!argv[4]) {
         printf("ERROR : Not enough arguments for NOISE filter, add number of HZ to add as sine wave as argument\n");
         return -1;
       }
-      if(strlen(argv[4]) > 4) {
-        printf("ERROR filter argument too big! should be smaller than 10000 (two digits max)\n");
+      if(strlen(argv[4]) > 5) {
+        printf("ERROR filter argument too big! should be smaller than 10000 \n");
         return -1;
       }
-    } else if(strncmp(argv[3], SPEED, strlen(SPEED)) == 0) { 
+    } else if(strncmp(argv[3], SPEED, strlen(SPEED) + 1) == 0) { 
       filter = 3;
       if(!argv[4]) {
         printf("ERROR : Not enough arguments for SPEED filter, add percentage to multiply rate by\n");

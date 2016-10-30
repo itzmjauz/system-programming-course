@@ -75,5 +75,22 @@ The DONE message looks like this:
 4. Audio Filters
 There are three implemented audiofilters.
 
-4.1 LOWVOL 
-the lowvol filter lowers the volume 
+The filter arguments follow after ./executable [hostname] [filename] [<filter> [<filter options>]]
+filters are optional. 
+If characters other than digits are given the program converts the letters to decimal values, 
+the results will still adhere to the range constraints.
+
+4.1 VOL 
+Usage : ./executable [hostname] [filename] VOL [percentage]
+percentage can range from 0 to 999 
+And will adjust the volume, thus 100 has no noticable results.
+
+4.2 NOISE
+Usage : ./executable [hostname] [filename] noise [frequency]
+It will add a since wave with given frequency, 
+frequency can range from 0 to 99999 , although higher values will give unexpected results. 
+
+4.3 SPEED
+Usage : ./executable [hostname] [filename] SPEED [percentage]
+SPEED will adjust the speed the audio is played at.
+The SPEED value can range from 1 to 999, 0 is not accepted since this would result in an infinite quiet loop.
