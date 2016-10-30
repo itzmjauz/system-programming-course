@@ -8,16 +8,21 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <stdint.h>
+#include <math.h>
+#include <limits.h>
 
 #include "audio.h"
 
 #define BUFSIZE 1024
 #define PORT 32581
+#define MAX_PACKET_LOSS 3
 
 static int breakloop = 0;
 static int filter = 0;
 static int filterarg = 0;
 static int sample_size = 0;
+static int sample_rate = 0;
 char * DONE = "DONE";
 char * CONNECT = "CONNECT";
 char * FERROR = "FERROR";
@@ -42,33 +47,67 @@ int recvtimeout(int fd) {
     return nb;
   }
 }
+
 float getPercent(int source) {
   float percentage;
   percentage = (float) source / 100; 
-
   return percentage; 
 }
 
-char * lowvol(char * buffer) {
-  int sampleCount = (BUFSIZE / sizeof(int16_t));
-  int16_t * samp = (int16_t *) &buffer[0];
-  float percent = getPercent(filterarg);
-  for (int i = 0; i < sampleCount; i++) {
-    samp[i] -= (int16_t) (samp[i] * percent);
+char * noise(char * buffer) {
+  if(sample_size == 16) {
+    for(int i = 0 ; i < BUFSIZE ; i++) {
+      buffer[i] += (int16_t) (SHRT_MAX * 0.1f * sinf(2.0f * M_PI * filterarg * i / sample_rate));
+    }
+  } else if(sample_size == 8) {
+    for(int i = 0 ; i < BUFSIZE ; i++) {
+      buffer[i] += (int8_t) (SHRT_MAX * 0.1f * sinf(2.0f * M_PI * filterarg * i / sample_rate));
+    }
+  } else {
+    printf("ERROR : Filter does not support given sample size\n");
+    exit(-1);
   }
+
   return buffer;
 }
 
+char * vol(char * buffer) {
+  int sampleCount;
+  float percent = getPercent(filterarg);
+  
+  if(sample_size == 16) {
+    int16_t * samp = (int16_t *) &buffer[0];
+    sampleCount = (BUFSIZE / sizeof(int16_t));
+    for (int i = 0; i < sampleCount; i++) {
+      samp[i] = (int16_t) (samp[i] * percent);
+    }
+  } else {
+    int8_t * samp = (int8_t *) &buffer[0];
+    sampleCount = (BUFSIZE / sizeof(int8_t));
+    for (int i = 0; i < sampleCount; i++) {
+      samp[i] = (int8_t) (samp[i] * percent);
+    }
+  }
+   
+  return buffer;
+}
+
+float adjustsleep(float sleeptime) {
+  return sleeptime / getPercent(filterarg);
+}
+
 char * filterfunc(char * buffer) {
-  if(filter == 1) return lowvol(buffer);
+  if(filter == 1) return vol(buffer);
+  if(filter == 2) return noise(buffer);
   else return buffer;
 }
 
 int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
-  int bytesread, err = 0, count = 0;
+  int bytesread, err = 0, count = 0, lostcount = 0;
   socklen_t flen = sizeof(struct sockaddr_in);
   char buf[BUFSIZE], * filtered;
-  
+
+  if(filter == 3) sleeptime = adjustsleep(sleeptime); 
   bytesread = read(data_fd, buf, BUFSIZE);
   while (bytesread > 0) {
     filtered = filterfunc(buf);
@@ -85,27 +124,39 @@ int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
       return -1;
     } else if (err == 0) {
       printf("Packet : lost\n");
+      lostcount++;
+      if(lostcount > MAX_PACKET_LOSS) {
+        printf("Connection lost, skipping request\n");
+        return -1;
+      }
     } else {
       err = recvfrom(fd, buf, BUFSIZE, 0, (struct sockaddr *) &addr, &flen);
       if (err < 0) {
         printf("ERROR : Connection error\n");
       }
-      printf(" packet %d correctly received!\n", count);
     }
     if(strncmp(buf, OK, strlen(OK)) != 0) {
       if(strncmp(buf, CONNECT, strlen(CONNECT)) == 0) {
+        printf("Sending DENY to new client\n");
         err = sendto(fd, DENY, strlen(DENY), 0, (struct sockaddr *) &addr, flen);
         if(err < 0) {
           printf("ERROR, Connection error\n");
         }
       } else {
-        printf("\nNo OK received, skipping request\n");
-        return -1;
+        if(lostcount > MAX_PACKET_LOSS) {
+          printf("Connection lost, skipping request\n");
+          return -1;
+        }
+        printf("No OK received, retrying\n");
+        lostcount++;
       }
+    } else {
+      printf(" packet %d correctly received!\n", count);
+      count++;
+      lostcount = 0;
     }
-    count++;
 
-    bytesread = read(data_fd, buf, BUFSIZE);
+    if(lostcount == 0) bytesread = read(data_fd, buf, BUFSIZE);
   }
 
   printf("Sending DONE packet to client...\n");
@@ -121,7 +172,7 @@ int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
 }
 
 int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in addr) {
-  int data_fd, channels, sample_rate, bitrate, err;
+  int data_fd, channels, bitrate, err;
   float sleeptime;
   char buf[BUFSIZE];
 
@@ -152,7 +203,7 @@ int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in add
    
   bitrate = sample_size * sample_rate * channels;
   sleeptime = (1000000 * (float) (BUFSIZE * 8)) / (float) bitrate; //time per packet in microseconds
-
+  printf("%f", sleeptime);
   streamfile(fd, data_fd, addr, sleeptime);
   return 1;
 }

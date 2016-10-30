@@ -10,18 +10,20 @@
 #include <sys/time.h>
 #include <arpa/inet.h>
 
-#include "library.h"
 #include "audio.h"
 
 #define BUFSIZE 1024
 #define PORT 32581
 #define DONESIZE 4
+#define MAX_TIMEOUT 4
 
 static int breakloop = 0; 
 const char * DENY = "DENY";
 const char * CONNECT = "CONNECT";
 const char * FERROR = "FERROR";
-const char * LOWVOL = "LOWVOL";
+const char * VOL = "VOL";
+const char * NOISE = "NOISE";
+const char * SPEED = "SPEED";
 
 int recvtimeout(int fd) {
   struct timeval timeout;
@@ -30,7 +32,7 @@ int recvtimeout(int fd) {
 
   FD_ZERO(&read_set);
   FD_SET(fd, &read_set);
-  timeout.tv_sec = 1;
+  timeout.tv_sec = MAX_TIMEOUT;
   timeout.tv_usec = 0;
 
   nb = select(fd + 1, &read_set, NULL, NULL, &timeout);
@@ -129,7 +131,10 @@ int initconnection(int server_fd, char * hostname, char * filename, int filter, 
   printf("Waiting for answer from server...\n");
   err = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, &flen);
   if (err < 0) return -1;
-  if (strncmp(buf, DENY, strlen(DENY)) == 0) printf("ERROR, Server denied connection, probably busy\n");
+  if (strncmp(buf, DENY, strlen(DENY)) == 0) {
+    printf("ERROR, Server denied connection, probably busy\n");
+    return -1;
+  }
   if (strncmp(buf + strlen(CONNECT), filename, strlen(filename)) == 0) {
     printf("Connection OK!\n");
     err = recvfrom(server_fd, buf, BUFSIZE, 0, (struct sockaddr *) &sock, &flen);
@@ -145,13 +150,17 @@ int initconnection(int server_fd, char * hostname, char * filename, int filter, 
     sample_size = strtol(strtok(buf, "|"), NULL, 10);
     sample_rate = strtol(strtok(NULL, "|"), NULL, 10);
     channels = strtol(strtok(NULL, "|"), NULL, 10);
-
-   audio_fd = aud_writeinit(sample_rate, sample_size, channels);//open audio output
+    
+    if (filter != 3) {
+      audio_fd = aud_writeinit(sample_rate, sample_size, channels);//open audio output
+    } else {
+      audio_fd = aud_writeinit(sample_rate * strtol(filterarg, NULL, 10) / 100, sample_size, channels);//open audio output
+      printf("%d\n", sample_rate * 45 / 100);
+    }
     if (audio_fd < 0) {
       printf("ERROR : Cannot open audio output\n");
       return -1;
     }
-    
     
     memset(buf, 0, BUFSIZE);    
     if(filter != 0 && (strlen(filterarg) + 1) < BUFSIZE) {
@@ -198,16 +207,42 @@ int main(int argc, char ** argv) {
   }
 
   if(argv[3]) {
-    if(strncmp(argv[3], LOWVOL, strlen(LOWVOL)) == 0) { 
+    if(strncmp(argv[3], VOL, strlen(VOL)) == 0) { 
       filter = 1;
       if(!argv[4]) {
-        printf("ERROR : Not enough arguments for SLOWMO filter, add percentage of speed to play as argument\n");
+        printf("ERROR : Not enough arguments for VOL filter, add percentage of volume to play as argument\n");
         return -1;
       }
-      if(strlen(argv[4]) > 2) {
-      printf("ERROR filter argument too big! should be smaller than 100 (two digits max)\n");
-      return -1;
+      if(strlen(argv[4]) > 3) {
+        printf("ERROR : filter argument too big! should be smaller than 1000\n");
+        return -1;
+      }
     }
+    if(strncmp(argv[3], NOISE, strlen(NOISE)) == 0) { 
+      filter = 2;
+      if(!argv[4]) {
+        printf("ERROR : Not enough arguments for NOISE filter, add number of HZ to add as sine wave as argument\n");
+        return -1;
+      }
+      if(strlen(argv[4]) > 4) {
+        printf("ERROR filter argument too big! should be smaller than 10000 (two digits max)\n");
+        return -1;
+      }
+    }
+    if(strncmp(argv[3], SPEED, strlen(SPEED)) == 0) { 
+      filter = 3;
+      if(!argv[4]) {
+        printf("ERROR : Not enough arguments for SPEED filter, add percentage to multiply rate by\n");
+        return -1;
+      }
+      if(strlen(argv[4]) > 3) {
+        printf("ERROR filter argument too big! should be smaller than 1000\n");
+        return -1;
+        if(argv[4][0] == '0') {
+          printf("SPEED argument can't be 0 or start with 0, retry..\n");
+          return -1;
+        }
+      }
     }
   }
 
