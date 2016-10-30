@@ -103,7 +103,7 @@ char * filterfunc(char * buffer) {
 }
 
 int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
-  int bytesread, err = 0, count = 0, lostcount = 0;
+  int bytesread, err = 0, lostcount = 0;
   socklen_t flen = sizeof(struct sockaddr_in);
   char buf[BUFSIZE], * filtered;
 
@@ -117,7 +117,6 @@ int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
       printf("ERROR : cannot send audio packet, skipping request\n");
       return -1;
     }
-    printf("Sending packet ...");   // not doing this to remove delay in audioplay
     err = recvtimeout(fd);
     if (err < 0) {
       printf("ERROR : Connection error\n");
@@ -151,8 +150,6 @@ int streamfile(int fd, int data_fd, struct sockaddr_in addr, float sleeptime) {
         lostcount++;
       }
     } else {
-      printf(" packet %d correctly received!\n", count);
-      count++;
       lostcount = 0;
     }
 
@@ -203,7 +200,6 @@ int stream_audio(int fd, socklen_t flen, char * filename, struct sockaddr_in add
    
   bitrate = sample_size * sample_rate * channels;
   sleeptime = (1000000 * (float) (BUFSIZE * 8)) / (float) bitrate; //time per packet in microseconds
-  printf("%f", sleeptime);
   streamfile(fd, data_fd, addr, sleeptime);
   return 1;
 }

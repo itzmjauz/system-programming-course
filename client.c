@@ -68,7 +68,7 @@ struct in_addr resolvehost(char * hostname) {
 }
    
 int comms(int server_fd, int audio_fd, struct sockaddr_in addr) { //COMMUNICATIONS
-  int bytesread, count = 0, err;
+  int bytesread,  err;
   char buf[BUFSIZE], okmssg[] = "OK";
   socklen_t flen = sizeof(struct sockaddr_in);
 
@@ -80,8 +80,6 @@ int comms(int server_fd, int audio_fd, struct sockaddr_in addr) { //COMMUNICATIO
       printf("Cannot send OK to server\n");
       return -1;
     }
-    count++;
-    printf("Got packet: %d\n", count);
     err = recvtimeout(server_fd);
     if (err < 0) {
       printf("ERROR : Connection error\n");
@@ -217,8 +215,7 @@ int main(int argc, char ** argv) {
         printf("ERROR : filter argument too big! should be smaller than 1000\n");
         return -1;
       }
-    }
-    if(strncmp(argv[3], NOISE, strlen(NOISE)) == 0) { 
+    } else if(strncmp(argv[3], NOISE, strlen(NOISE)) == 0) { 
       filter = 2;
       if(!argv[4]) {
         printf("ERROR : Not enough arguments for NOISE filter, add number of HZ to add as sine wave as argument\n");
@@ -228,8 +225,7 @@ int main(int argc, char ** argv) {
         printf("ERROR filter argument too big! should be smaller than 10000 (two digits max)\n");
         return -1;
       }
-    }
-    if(strncmp(argv[3], SPEED, strlen(SPEED)) == 0) { 
+    } else if(strncmp(argv[3], SPEED, strlen(SPEED)) == 0) { 
       filter = 3;
       if(!argv[4]) {
         printf("ERROR : Not enough arguments for SPEED filter, add percentage to multiply rate by\n");
@@ -243,6 +239,9 @@ int main(int argc, char ** argv) {
           return -1;
         }
       }
+    } else {
+      printf("ERROR filter not found! try VOL NOISE or SPEED filter instead\n");
+      return -1;
     }
   }
 
